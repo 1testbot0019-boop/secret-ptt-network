@@ -1,42 +1,95 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>PTT Secret Network</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret PTT Network</title>
     <style>
-        body { background: #0a0a0a; color: #0f0; font-family: 'Courier New', monospace; text-align: center; }
-        #ptt-trigger { width: 180px; height: 180px; border-radius: 50%; background: #600; border: 8px solid #333; cursor: pointer; margin-top: 50px; }
+        body { background: #0a0a0a; color: #0f0; font-family: 'Courier New', monospace; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        #ptt-trigger { width: 180px; height: 180px; border-radius: 50%; background: #600; border: 8px solid #333; cursor: pointer; margin: 20px; outline: none; -webkit-tap-highlight-color: transparent; }
         #ptt-trigger:active { background: #f00; box-shadow: 0 0 30px #f00; }
+        .controls { margin-bottom: 20px; }
+        input { background: #111; border: 1px solid #0f0; color: #0f0; padding: 10px; text-align: center; font-size: 1.2rem; }
+        #status { font-weight: bold; letter-spacing: 2px; }
+        #connect-btn { padding: 10px 20px; background: #0f0; color: #000; border: none; cursor: pointer; font-weight: bold; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <h1>SYSTEM ACTIVE</h1>
-    <input type="text" id="freq-input" value="144.500" style="background:none; border:1px solid #0f0; color:#0f0; text-align:center;">
-    <br>
-    <button id="ptt-trigger"></button>
-    <p id="status">IDLE</p>
+    
+    <button id="connect-btn">INITIALIZE SYSTEM</button>
+
+    <div class="controls">
+        <label>FREQUENCY:</label><br>
+        <input type="text" id="freq-input" value="144.500">
+    </div>
+
+    <button id="ptt-trigger" style="display:none;"></button>
+    <p id="status">OFFLINE - INITIALIZE TO START</p>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         const btn = document.getElementById('ptt-trigger');
+        const connectBtn = document.getElementById('connect-btn');
         const freqInput = document.getElementById('freq-input');
+        const statusText = document.getElementById('status');
         
-        socket.emit('join-freq', freqInput.value);
+        let mediaRecorder;
+        let audioChunks = [];
 
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-            const mediaRecorder = new MediaRecorder(stream);
-            
-            mediaRecorder.ondataavailable = (e) => {
-                socket.emit('audio-out', { freq: freqInput.value, blob: e.data });
-            };
+        connectBtn.onclick = () => {
+            // Unlocks audio context and starts mic
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+                                     ? 'audio/webm;codecs=opus' 
+                                     : 'audio/ogg;codecs=opus';
+                                     
+                    mediaRecorder = new MediaRecorder(stream, { mimeType });
 
-            btn.onmousedown = () => { mediaRecorder.start(); document.getElementById('status').innerText = "TRANSMITTING..."; };
-            btn.onmouseup = () => { mediaRecorder.stop(); document.getElementById('status').innerText = "IDLE"; };
-        });
+                    mediaRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) {
+                            socket.emit('audio-out', { freq: freqInput.value, blob: e.data });
+                        }
+                    };
 
-        socket.on('audio-in', (blob) => {
-            const audio = new Audio(URL.createObjectURL(new Blob([blob])));
-            audio.play();
+                    // Show PTT button after permission
+                    btn.style.display = 'block';
+                    connectBtn.style.display = 'none';
+                    statusText.innerText = "READY / IDLE";
+                    socket.emit('join-freq', freqInput.value);
+                })
+                .catch(err => {
+                    alert("Microphone access denied or not found.");
+                    console.error(err);
+                });
+        };
+
+        // PTT Logic
+        btn.onmousedown = btn.ontouchstart = (e) => {
+            e.preventDefault();
+            if (mediaRecorder && mediaRecorder.state === "inactive") {
+                mediaRecorder.start();
+                statusText.innerText = "TRANSMITTING...";
+                statusText.style.color = "#f00";
+            }
+        };
+
+        btn.onmouseup = btn.ontouchend = () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                statusText.innerText = "READY / IDLE";
+                statusText.style.color = "#0f0";
+            }
+        };
+
+        // Receiving logic
+        socket.on('audio-in', (blobData) => {
+            const blob = new Blob([blobData], { type: 'audio/webm;codecs=opus' });
+            const audioURL = window.URL.createObjectURL(blob);
+            const audio = new Audio(audioURL);
+            audio.play().catch(e => console.error("Playback failed:", e));
         });
     </script>
 </body>
