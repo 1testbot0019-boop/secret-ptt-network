@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PTT Secret Network</title>
+    <style>
+        body { background: #0a0a0a; color: #0f0; font-family: 'Courier New', monospace; text-align: center; }
+        #ptt-trigger { width: 180px; height: 180px; border-radius: 50%; background: #600; border: 8px solid #333; cursor: pointer; margin-top: 50px; }
+        #ptt-trigger:active { background: #f00; box-shadow: 0 0 30px #f00; }
+    </style>
+</head>
+<body>
+    <h1>SYSTEM ACTIVE</h1>
+    <input type="text" id="freq-input" value="144.500" style="background:none; border:1px solid #0f0; color:#0f0; text-align:center;">
+    <br>
+    <button id="ptt-trigger"></button>
+    <p id="status">IDLE</p>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const btn = document.getElementById('ptt-trigger');
+        const freqInput = document.getElementById('freq-input');
+        
+        socket.emit('join-freq', freqInput.value);
+
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            const mediaRecorder = new MediaRecorder(stream);
+            
+            mediaRecorder.ondataavailable = (e) => {
+                socket.emit('audio-out', { freq: freqInput.value, blob: e.data });
+            };
+
+            btn.onmousedown = () => { mediaRecorder.start(); document.getElementById('status').innerText = "TRANSMITTING..."; };
+            btn.onmouseup = () => { mediaRecorder.stop(); document.getElementById('status').innerText = "IDLE"; };
+        });
+
+        socket.on('audio-in', (blob) => {
+            const audio = new Audio(URL.createObjectURL(new Blob([blob])));
+            audio.play();
+        });
+    </script>
+</body>
+</html>
